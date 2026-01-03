@@ -17,7 +17,11 @@ router.post("/", async (req, res) => {
     }
 
     const session = await createCheckoutSession({
-      items,
+      items: items.map((item) => ({
+        name: item.name,
+        price: Number(item.price),
+        quantity: item.quantity,
+      })),
       deliveryFeePence,
       frontendUrl,
     });
