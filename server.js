@@ -3,12 +3,17 @@ dotenv.config();
 
 import express from "express";
 import checkoutRouter from "./routes/checkout.js";
+import distanceRouter from "./routes/distance.js";
 
 const app = express();
 
 app.use(express.json());
-app.use("/api/checkout", checkoutRouter);
 
+// routes
+app.use("/api/checkout", checkoutRouter);
+app.use("/api/distance", distanceRouter);
+
+// health check
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
