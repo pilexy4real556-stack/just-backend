@@ -15,15 +15,15 @@ const app = express();
 app.use(
   cors({
     origin: [
-      "http://localhost:3000",
       "https://justcook-liart.vercel.app",
+      "https://justcook-nnjsq2kne-justcooks-projects.vercel.app",
     ],
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// Handle preflight requests
+// IMPORTANT: handle preflight explicitly
 app.options("*", cors());
 
 app.use(express.json());
@@ -37,7 +37,7 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log("Backend running on port", PORT);
+  console.log(`Server running on port ${PORT}`);
 });
