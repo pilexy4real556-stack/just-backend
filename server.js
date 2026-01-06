@@ -12,24 +12,13 @@ const app = express();
 /* =========================
    CORS CONFIG (IMPORTANT)
    ========================= */
-const allowedOrigins = [
-  "http://localhost:3000",
-  "https://justcook-nnjsq2kne-justcooks-projects.vercel.app",
-];
-
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // allow server-to-server or same-origin requests
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("CORS not allowed"));
-      }
-    },
-    methods: ["GET", "POST", "OPTIONS"],
+    origin: [
+      "http://localhost:3000",
+      "https://justcook-liart.vercel.app"
+    ],
+    methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type"],
   })
 );

@@ -44,4 +44,15 @@ router.post("/", async (req, res) => {
   }
 });
 
+router.post("/api/distance", async (req, res) => {
+  const { address } = req.body;
+
+  if (!address) {
+    return res.status(400).json({ error: "Address is required" });
+  }
+
+  // distance logic here
+  res.json({ distanceKm: 5.2 });
+});
+
 export default router;

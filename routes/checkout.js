@@ -1,11 +1,16 @@
 import express from "express";
 import { createCheckoutSession } from "../services/stripe.js";
+import { db, admin } from "../firebase.js"; // Adjust the import based on your project structure
 
 const router = express.Router();
 
 router.post("/", async (req, res) => {
   try {
-    const { items, deliveryFeePence } = req.body;
+    const { items, deliveryFeePence, customerPhone, deliveryAddress } = req.body;
+
+    if (!customerPhone) {
+      return res.status(400).json({ error: "Customer phone is required" });
+    }
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: "Items are required" });
@@ -24,6 +29,20 @@ router.post("/", async (req, res) => {
       })),
       deliveryFeePence,
       frontendUrl,
+    });
+
+    // Example Firestore order creation
+    await db.collection("orders").add({
+      customerId: "exampleCustomerId", // Replace with actual customer ID logic
+      items,
+      totalAmount: 1000, // Replace with actual total amount logic
+      deliveryFee: deliveryFeePence,
+      deliveryBand: "exampleDeliveryBand", // Replace with actual delivery band logic
+      deliveryAddress,
+      customerPhone,
+      paymentStatus: "PAID",
+      orderStatus: "PAID",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     res.json({ url: session.url });
