@@ -70,36 +70,57 @@ export default async function webhook(req, res) {
       /* -------------------------
          Create order
       ------------------------- */
-      await db.collection("orders").add({
+      const orderData = {
         customerId,
         paymentStatus: "PAID",
+        orderStatus: "PAID",
         stripeSessionId: session.id,
+        totalAmount: session.amount_total ?? 0,
+        currency: session.currency,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      };
+
+      // Store referral info in order if used
+      const referrerId = session.metadata?.referrerId ?? null;
+      if (usedReferralCode && referrerId) {
+        orderData.referralCodeUsed = usedReferralCode;
+        orderData.referrerId = referrerId;
+      }
+
+      await db.collection("orders").add(orderData);
 
       /* -------------------------
-         Apply referral (if used)
+         Apply referral (if used) - ONLY if not already applied
       ------------------------- */
-      if (usedReferralCode) {
-        const refSnap = await db
-          .collection("users")
-          .where("referralCode", "==", usedReferralCode)
-          .limit(1)
-          .get();
+      if (usedReferralCode && referrerId) {
+        const userSnap = await db.collection("users").doc(customerId).get();
+        const userData = userSnap.data();
 
-        if (!refSnap.empty) {
-          const referrerId = refSnap.docs[0].id;
+        // Only apply if user hasn't been referred yet
+        if (!userData?.referredBy) {
+          const referrerSnap = await db
+            .collection("users")
+            .doc(referrerId)
+            .get();
+          const referrerData = referrerSnap.data();
 
-          // Prevent self-referral
-          if (referrerId !== customerId) {
-            const userDoc = await db.collection("users").doc(customerId).get();
-            if (userDoc.exists && userDoc.data().referredBy) return;
+          // Check if code hasn't been used yet
+          if (!referrerData?.referralCodeUsed) {
+            // Mark code as used
+            await db.collection("users").doc(referrerId).update({
+              referralCodeUsed: true,
+              referralCodeUsedBy: customerId,
+              referralCodeUsedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
 
+            // Mark user as referred (but DON'T give them free delivery credit)
             await db.collection("users").doc(customerId).update({
               referredBy: referrerId,
               referralUsedAt: admin.firestore.FieldValue.serverTimestamp(),
+              // REMOVED: Don't give free delivery credit to new user
             });
 
+            // Give referrer free delivery credit for NEXT order
             await db
               .collection("users")
               .doc(referrerId)
@@ -108,13 +129,16 @@ export default async function webhook(req, res) {
               });
 
             console.log("🎉 Referral applied:", usedReferralCode);
+            console.log("✅ Referrer gets free delivery credit for next order");
           }
         }
       }
 
       /* -------------------------
-         Ensure referral for payer
+         Ensure referral code for payer (fallback - code should already exist from checkout)
       ------------------------- */
+      // Code should already be generated at checkout, but ensure it exists as fallback
+      // This handles edge cases where checkout didn't generate it
       await ensureReferralCode(customerId);
 
       /* -------------------------

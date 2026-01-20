@@ -1,6 +1,5 @@
 import express from "express";
 import { createCheckoutSession } from "../services/stripe.js";
-import { applyReferralCode } from "../services/referral.js";
 import admin from "../firebase.js";
 
 const router = express.Router();
@@ -33,26 +32,87 @@ router.post("/", async (req, res) => {
       return res.status(500).json({ error: "Invalid FRONTEND_URL" });
     }
 
-    // --- REFERRAL VALIDATION ---
-    if (referral?.code) {
-      try {
-        const referralResult = await applyReferralCode({
-          customerId,
-          referralCode: referral.code,
-        });
+    const db = admin.firestore();
 
-        if (!referralResult.valid) {
-          return res.status(400).json({
-            error: "INVALID_REFERRAL",
-            reason: referralResult.reason,
+    // --- CHECK IF FIRST ORDER AND GENERATE REFERRAL CODE ---
+    // Generate code BEFORE payment so it's available on success page
+    const ordersSnap = await db
+      .collection("orders")
+      .where("customerId", "==", customerId)
+      .get();
+
+    const isFirstOrder = ordersSnap.size === 0;
+
+    if (isFirstOrder) {
+      // Generate referral code BEFORE payment
+      const userRef = db.collection("users").doc(customerId);
+      const userSnap = await userRef.get();
+      
+      if (userSnap.exists) {
+        const userData = userSnap.data();
+        if (!userData.referralCode) {
+          const referralCode = "JC-" + Math.random().toString(36).substring(2, 7).toUpperCase();
+          await userRef.update({
+            referralCode,
+            referralCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
+          console.log("✅ Referral code generated at checkout (first order):", referralCode);
         }
-      } catch (error) {
-        return res.status(500).json({ error: "Referral validation failed" });
       }
     }
 
-    const db = admin.firestore();
+    // --- REFERRAL VALIDATION (only validate, don't apply) ---
+    if (referral?.code) {
+      try {
+        // Validate referral code inline (same logic as /api/referral/validate)
+        const snap = await db
+          .collection("users")
+          .where("referralCode", "==", referral.code)
+          .limit(1)
+          .get();
+
+        if (snap.empty) {
+          return res.status(400).json({
+            error: "INVALID_REFERRAL",
+            reason: "INVALID_CODE",
+          });
+        }
+
+        const referrerDoc = snap.docs[0];
+        const referrerData = referrerDoc.data();
+
+        // Check if code has been used
+        if (referrerData.referralCodeUsed) {
+          return res.status(400).json({
+            error: "INVALID_REFERRAL",
+            reason: "CODE_ALREADY_USED",
+          });
+        }
+
+        // Prevent self-referral
+        if (referrerDoc.id === customerId) {
+          return res.status(400).json({
+            error: "INVALID_REFERRAL",
+            reason: "SELF_REFERRAL",
+          });
+        }
+
+        const userSnap = await db.collection("users").doc(customerId).get();
+
+        if (userSnap.exists && userSnap.data().referredBy) {
+          return res.status(400).json({
+            error: "INVALID_REFERRAL",
+            reason: "ALREADY_REFERRED",
+          });
+        }
+
+        // Store referrerId for webhook
+        referral.referrerId = referrerDoc.id;
+      } catch (error) {
+        console.error("Referral validation error:", error);
+        return res.status(500).json({ error: "Referral validation failed" });
+      }
+    }
 
     // Get user
     const userSnap = await db.collection("users").doc(customerId).get();
@@ -61,9 +121,14 @@ router.post("/", async (req, res) => {
     // Final delivery fee
     let finalDeliveryFee = deliveryFeePence;
 
+    // Apply free delivery ONLY if user has existing credits
+    // NEW USER USING REFERRAL CODE PAYS NORMAL DELIVERY FEE
     if (user?.freeDeliveryCredits > 0) {
       finalDeliveryFee = 0;
     }
+
+    // Note: New user using referral code pays normal delivery fee
+    // Referrer will get credit in webhook handler
 
     console.log("Original delivery fee:", deliveryFeePence);
     console.log("Final delivery fee:", finalDeliveryFee);

@@ -22,10 +22,16 @@ router.post("/validate", async (req, res) => {
       .get();
 
     if (snap.empty) {
-      return res.json({ valid: false });
+      return res.json({ valid: false, reason: "INVALID_CODE" });
     }
 
     const referrerDoc = snap.docs[0];
+    const referrerData = referrerDoc.data();
+
+    // Check if code has been used
+    if (referrerData.referralCodeUsed) {
+      return res.json({ valid: false, reason: "CODE_ALREADY_USED" });
+    }
 
     // Prevent self-referral
     if (referrerDoc.id === customerId) {

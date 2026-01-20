@@ -63,12 +63,14 @@ export async function ensureReferralCode(customerId) {
 
 /**
  * Validate referral code and apply it to the user
+ * NOTE: This function is kept for backward compatibility but should not be called at checkout.
+ * Referral application happens in webhook handler after payment.
  */
 export async function applyReferralCode({ customerId, referralCode }) {
-  // Find referral owner
+  // Find user who owns this referral code (FIX: look in users, not referrals)
   const snap = await db
-    .collection("referrals")
-    .where("code", "==", referralCode)
+    .collection("users")
+    .where("referralCode", "==", referralCode)
     .limit(1)
     .get();
 
@@ -76,11 +78,18 @@ export async function applyReferralCode({ customerId, referralCode }) {
     throw new Error("INVALID_CODE");
   }
 
-  const referralDoc = snap.docs[0];
-  const referrerId = referralDoc.data().userId;
+  const referrerDoc = snap.docs[0];
+  const referrerId = referrerDoc.id;
+  const referrerData = referrerDoc.data();
 
+  // Prevent self-referral
   if (referrerId === customerId) {
     throw new Error("SELF_REFERRAL");
+  }
+
+  // Check if code has already been used
+  if (referrerData.referralCodeUsed) {
+    throw new Error("CODE_ALREADY_USED");
   }
 
   const userRef = db.collection("users").doc(customerId);
@@ -90,26 +99,34 @@ export async function applyReferralCode({ customerId, referralCode }) {
     throw new Error("USER_NOT_FOUND");
   }
 
+  // Check if user has already used a referral code
   if (userSnap.data().referredBy) {
-    throw new Error("ALREADY_USED");
+    throw new Error("ALREADY_USED_REFERRAL");
   }
 
-  // Apply referral
+  // Mark code as used
+  await db.collection("users").doc(referrerId).update({
+    referralCodeUsed: true,
+    referralCodeUsedBy: customerId,
+    referralCodeUsedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // Mark user as referred (but DON'T give them free delivery)
   await userRef.update({
     referredBy: referrerId,
     referralUsedAt: admin.firestore.FieldValue.serverTimestamp(),
-    freeDeliveryCredits: admin.firestore.FieldValue.increment(1), // Grant credit to referred user
+    // REMOVED: Don't give free delivery credit to new user
   });
 
-  // Reward referrer
-  await db
-    .collection("users")
-    .doc(referrerId)
-    .update({
-      freeDeliveryCredits: admin.firestore.FieldValue.increment(1),
-    });
+  // Give referrer free delivery credit for NEXT order
+  await db.collection("users").doc(referrerId).update({
+    freeDeliveryCredits: admin.firestore.FieldValue.increment(1),
+  });
 
-  return { success: true };
+  return { 
+    success: true,
+    referrerId,
+  };
 }
 
 /**
