@@ -13,6 +13,9 @@ export async function createCheckoutSession({
   items,
   deliveryFeePence,
   frontendUrl,
+  customerId,
+  referral,
+  deliveryAddress, // Added deliveryAddress to parameters
 }) {
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error("No items provided");
@@ -43,5 +46,11 @@ export async function createCheckoutSession({
     line_items: lineItems,
     success_url: `${frontendUrl}/success`,
     cancel_url: `${frontendUrl}/cart`,
+    metadata: {
+      customerId: customerId || "",
+      referralCode: referral?.code || "",
+      referrerId: referral?.referrerId || "",
+      deliveryAddress: deliveryAddress || "", // Added deliveryAddress field
+    },
   });
 }
